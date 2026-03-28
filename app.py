@@ -8,8 +8,7 @@ from bs4 import BeautifulSoup
 st.set_page_config(
     page_title="Gov Genie AI", 
     layout="wide", 
-    page_icon="🧞",
-    initial_sidebar_state="expanded"
+    page_icon="🧞"
 )
 
 # Визуал услублар (CSS)
@@ -20,12 +19,12 @@ st.markdown("""
         width: 100%; 
         border-radius: 8px; 
         height: 3.5em; 
-        background-color: #007bff; 
+        background-color: #2e7d32; 
         color: white;
         font-weight: bold;
     }
     .stAlert { border-radius: 10px; }
-    h1 { color: #1e3a8a; }
+    h1 { color: #1e3a8a; font-family: 'Arial'; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -51,25 +50,29 @@ def run_query(query, params=None):
             return []
     return []
 
-# 3. AI БИЛАН БОҒЛАНИШ (ДИАГНОСТИКА БИЛАН)
+# 3. AI БИЛАН БОҒЛАНИШ (404 ХАТОЛИГИ ТУЗАТИЛГАН ВЕРСИЯ)
 def get_ai_response(prompt):
     try:
         if "GENAI_API_KEY" not in st.secrets:
             return "❌ Хато: Streamlit secrets ичида 'GENAI_API_KEY' топилмади."
             
         api_key = st.secrets["GENAI_API_KEY"]
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        
+        # 1-УРИНИШ: Барқарор v1 версияси ва flash модели
+        url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}"
         
         headers = {'Content-Type': 'application/json'}
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.3} # Аниқроқ жавоб учун
-        }
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
         
         response = requests.post(url, headers=headers, json=payload, timeout=20)
+        
+        # Агар 404 берса, v1beta версиясини синаб кўрамиз
+        if response.status_code == 404:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+            response = requests.post(url, headers=headers, json=payload, timeout=20)
+
         result = response.json()
         
-        # API хатоликларини тутиш
         if response.status_code != 200:
             error_msg = result.get('error', {}).get('message', 'Номаълум хатолик')
             return f"❌ API Хатолиги (Status {response.status_code}): {error_msg}"
@@ -77,7 +80,7 @@ def get_ai_response(prompt):
         if 'candidates' in result and len(result['candidates']) > 0:
             return result['candidates'][0]['content']['parts'][0]['text']
         else:
-            return "⚠️ AI жавоб қайтара олмади. Жавоб тузилиши кутилганидек эмас."
+            return "⚠️ AI жавоб қайтара олмади. Қайта уриниб кўринг."
             
     except Exception as e:
         return f"❌ Уланишда техник хатолик: {str(e)}"
@@ -90,7 +93,7 @@ def fetch_lex_uz(term):
         r = requests.get(search_url, headers=headers, timeout=15)
         
         if r.status_code != 200:
-            return "Lex.uz сайтига боғланишда хатолик."
+            return "Lex.uz сайтига боғланишда муаммо."
 
         soup = BeautifulSoup(r.text, 'html.parser')
         links = soup.select('.lex_list_title a')
@@ -99,7 +102,7 @@ def fetch_lex_uz(term):
             return "Янги ҳужжатлар топилмади."
             
         formatted_links = []
-        for l in links[:3]: # Энг янги 3 тасини оламиз
+        for l in links[:3]: 
             title = l.text.strip()
             url = "https://lex.uz" + l.get('href')
             formatted_links.append(f"- {title} ({url})")
@@ -110,7 +113,7 @@ def fetch_lex_uz(term):
 
 # 5. АСОСИЙ ИНТЕРФЕЙС
 st.title("🧞 Gov Genie AI")
-st.write("Давлат хизматчилари учун ҳуқуқий ва функционал ёрдамчи")
+st.subheader("Давлат хизматчилари учун интеллектуаль ёрдамчи")
 
 # Ташкилотларни юклаш
 orgs = run_query("SELECT id, name FROM organizations")
@@ -133,18 +136,15 @@ if orgs:
 
         # ТАҲЛИЛ ТУГМАСИ
         if st.button("🔄 Lex.uz дан янги қонунларни таҳлил қилиш"):
-            with st.spinner("Lex.uz базаси ва СИ таҳлил қилмоқда..."):
+            with st.spinner("Lex.uz ва СИ таҳлил қилмоқда..."):
                 lex_data = fetch_lex_uz(role_name)
                 
-                # Агар маълумот бўлса, СИга юбориш
-                if "топилмади" in lex_data:
-                    st.warning(f"'{role_name}' бўйича Lex.uz сайтида янги ҳужжатлар топилмади. Лекин мен умумий тавсия беришим мумкин.")
-                    lex_data = "Янги ҳужжатлар йўқ, умумий соҳавий тавсия бер."
-
-                prompt = f"""Сен Ўзбекистон давлат бошқаруви экспертисан. 
+                # СИ учун топшириқ (Prompt)
+                prompt = f"""Сен Ўзбекистон қонунчилиги бўйича экспертсан. 
                 Лавозим: {role_name}. 
-                Манба (Lex.uz): {lex_data}. 
-                Вазифа: Ушбу лавозим эгаси учун энг муҳим 2-3 та янгилик ёки амалий маслаҳатни пунктлар билан ёзиб бер. Содда ва профессионал ўзбек тилида бўлсин."""
+                Манбалар: {lex_data}. 
+                Агар манбада янги ҳужжат бўлмаса, умумий соҳавий тавсия бер. 
+                Агар бўлса, энг муҳим 2-3 та ўзгаришни содда тилда тушунтир."""
                 
                 analysis = get_ai_response(prompt)
                 st.markdown("### ✨ AI Таҳлили ва Тавсиялар:")
@@ -152,26 +152,25 @@ if orgs:
 
         st.markdown("---")
 
-        # БАЗАДАГИ МАЪЛУМОТЛАР (КЎРИНИШИ ЯХШИЛАНГАН)
+        # БАЗАДАГИ МАЪЛУМОТЛАР
         c_left, c_right = st.columns(2)
         
         with c_left:
-            st.markdown("#### 📜 Асосий қонунчилик базаси")
-            laws = run_query("SELECT title FROM laws l JOIN role_laws rl ON l.id = rl.law_id WHERE rl.role_id=%s", (role_id,))
-            if laws:
-                for l in laws: st.markdown(f"✅ {l[0]}")
-            else:
-                st.write("Маълумот мавжуд эмас.")
+            with st.expander("📜 Асосий қонунчилик базаси", expanded=True):
+                laws = run_query("SELECT title FROM laws l JOIN role_laws rl ON l.id = rl.law_id WHERE rl.role_id=%s", (role_id,))
+                if laws:
+                    for l in laws: st.write(f"✅ {l[0]}")
+                else:
+                    st.write("Маълумот мавжуд эмас.")
             
         with c_right:
-            st.markdown("#### ✅ Функционал вазифаларингиз")
-            tasks = run_query("SELECT task FROM tasks WHERE role_id=%s", (role_id,))
-            if tasks:
-                for t in tasks: st.markdown(f"🔹 {t[0]}")
-            else:
-                st.write("Вазифалар киритилмаган.")
+            with st.expander("✅ Функционал вазифалар", expanded=True):
+                tasks = run_query("SELECT task FROM tasks WHERE role_id=%s", (role_id,))
+                if tasks:
+                    for t in tasks: st.write(f"🔹 {t[0]}")
+                else:
+                    st.write("Вазифалар киритилмаган.")
 else:
-    st.error("❌ Маълумотлар базасига уланиб бўлмади. Streamlit Secrets ичидаги DB_URL ни текширинг.")
+    st.error("❌ Маълумотлар базаси бўш ёки уланишда хатолик.")
 
-# Footer
 st.markdown("<br><hr><center>Gov Genie AI © 2026</center>", unsafe_allow_html=True)
