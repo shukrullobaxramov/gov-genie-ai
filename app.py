@@ -1,8 +1,7 @@
 import streamlit as st
 import psycopg2
-import google.generativeai as genai
 import requests
-from bs4 import BeautifulSoup
+import json
 
 # Саҳифа созламалари
 st.set_page_config(page_title="Gov Genie AI", layout="wide")
@@ -19,9 +18,27 @@ def run_query(query, params=None):
     except Exception as e:
         return []
 
+# --- AI БИЛАН ТЎҒРИДАН-ТЎҒРИ БОҒЛАНИШ (ХАТОСИЗ УСУЛ) ---
+def get_ai_response_direct(prompt):
+    api_key = st.secrets["GENAI_API_KEY"]
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    
+    headers = {'Content-Type': 'application/json'}
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}]
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, data=json.dumps(payload))
+        result = response.json()
+        return result['candidates'][0]['content']['parts'][0]['text']
+    except Exception as e:
+        return f"AI таҳлил қилишда хатолик юз берди. Илтимос, API калитингизни текширинг."
+
 # Lex.uz қидируви
 def fetch_lex_uz(term):
     try:
+        from bs4 import BeautifulSoup
         url = f"https://lex.uz/search/nat?query={term}"
         headers = {'User-Agent': 'Mozilla/5.0'}
         r = requests.get(url, headers=headers, timeout=5)
@@ -29,7 +46,7 @@ def fetch_lex_uz(term):
         links = soup.select('.lex_list_title a')[:2]
         return "\n".join([f"{l.text.strip()} (https://lex.uz{l.get('href')})" for l in links])
     except:
-        return "Lex.uz маълумотларини олиб бўлмади."
+        return "Янги ҳужжатларни олиш имконсиз."
 
 # ИНТЕРФЕЙС
 st.title("🧞 Gov Genie AI")
@@ -46,31 +63,21 @@ if orgs:
         role_name = c2.selectbox("👨‍💼 Лавозимни танланг", list(role_dict.keys()))
         role_id = role_dict[role_name]
 
-        # Lex.uz таҳлил тугмаси
         if st.button("🔄 Lex.uz дан янги қонунларни таҳлил қилиш"):
             with st.spinner("AI таҳлил қилмоқда..."):
-                try:
-                    lex_data = fetch_lex_uz(role_name)
-                    genai.configure(api_key=st.secrets["GENAI_API_KEY"])
-                    # Бу ерда энг барқарор моделни ишлатамиз
-                    model = genai.GenerativeModel("gemini-1.5-flash")
-                    prompt = f"Лавозим: {role_name}. Lex.uz янгиликлари: {lex_data}. Энг муҳимларини тушунтир."
-                    ai_res = model.generate_content(prompt)
-                    st.success(ai_res.text)
-                except Exception as ai_err:
-                    st.error(f"AI хатолиги: {str(ai_err)}. API калитингиз ишлаётганига ишонч ҳосил қилинг.")
+                lex_data = fetch_lex_uz(role_name)
+                prompt = f"Лавозим: {role_name}. Lex.uz маълумоти: {lex_data}. Муҳим жойларини тушунтир."
+                ai_res = get_ai_response_direct(prompt)
+                st.success(ai_res)
 
         st.markdown("---")
-        # Базадан маълумот чиқариш
         laws = run_query("SELECT title FROM laws l JOIN role_laws rl ON l.id = rl.law_id WHERE rl.role_id=%s", (role_id,))
         tasks = run_query("SELECT task FROM tasks WHERE role_id=%s", (role_id,))
 
         col_a, col_b = st.columns(2)
         with col_a:
             st.info("📜 Базадаги қонунлар:")
-            if laws:
-                for l in laws: st.write(f"• {l[0]}")
+            for l in laws: st.write(f"• {l[0]}")
         with col_b:
             st.success("✅ Асосий вазифалар:")
-            if tasks:
-                for t in tasks: st.write(f"• {t[0]}")
+            for t in tasks: st.write(f"• {t[0]}")
