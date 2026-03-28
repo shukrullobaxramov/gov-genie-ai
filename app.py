@@ -19,10 +19,10 @@ def run_query(query, params=None):
     except Exception as e:
         return []
 
-# --- AI БИЛАН ТЎҒРИДАН-ТЎҒРИ БОҒЛАНИШ (ХАТОСИЗ УСУЛ) ---
+# --- AI БИЛАН ТЎҒРИДАН-ТЎҒРИ (DIRECT) БОҒЛАНИШ ---
 def get_ai_response(prompt):
     api_key = st.secrets["GENAI_API_KEY"]
-    # Тўғридан-тўғри Google API манзили
+    # Кутубхонасиз, тўғридан-тўғри API манзилига мурожаат
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     
     headers = {'Content-Type': 'application/json'}
@@ -35,14 +35,18 @@ def get_ai_response(prompt):
     try:
         response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=15)
         result = response.json()
-        if 'candidates' in result:
+        
+        # Жавобни таҳлил қилиш
+        if 'candidates' in result and len(result['candidates']) > 0:
             return result['candidates'][0]['content']['parts'][0]['text']
+        elif 'error' in result:
+            return f"API Хатолиги: {result['error']['message']}"
         else:
-            return f"AI хатолиги: {result.get('error', {}).get('message', 'Номаълум хатолик')}"
+            return "AI жавоб қайтара олмади. API калитингизни ва квоталарни текширинг."
     except Exception as e:
-        return f"Тармоқ хатолиги: {str(e)}"
+        return f"Уланишда хатолик: {str(e)}"
 
-# --- LEX.UZ ҚИДИРУВИ ---
+# --- LEX.UZ SCRAPER ---
 def fetch_lex_uz(term):
     try:
         search_url = f"https://lex.uz/search/nat?query={term}"
@@ -54,7 +58,7 @@ def fetch_lex_uz(term):
             return "\n".join([f"{l.text.strip()} (https://lex.uz{l.get('href')})" for l in links])
         return "Янги ҳужжатлар топилмади."
     except:
-        return "Lex.uz билан алоқа боғлаб бўлмади."
+        return "Lex.uz сайти билан боғланиш имконсиз бўлди."
 
 # --- ИНТЕРФЕЙС ---
 st.title("🧞 Gov Genie AI")
@@ -76,13 +80,14 @@ if orgs:
 
         # Lex.uz таҳлил тугмаси
         if st.button("🔄 Lex.uz дан янги қонунларни таҳлил қилиш"):
-            with st.spinner("Lex.uz дан маълумот олинмоқда ва таҳлил қилинмоқда..."):
+            with st.spinner("Lex.uz дан маълумот олинмоқда ва AI таҳлил қилмоқда..."):
                 lex_data = fetch_lex_uz(role_name)
-                # AI-га вазифа бериш
+                
+                # AI-га топшириқ
                 prompt = f"""Сен давлат хизматчиси ёрдамчисисан. 
                 Лавозим: {role_name}. 
                 Lex.uz дан топилган ҳужжатлар: {lex_data}. 
-                Ушбу ҳужжатлар ичидан айнан мана шу лавозим эгаси учун энг муҳим бўлган 2 та ўзгаришни қисқача тушунтириб бер."""
+                Илтимос, ушбу ҳужжатлар ичидан айнан мана шу лавозим эгаси учун энг муҳим бўлган 2 та ўзгаришни қисқача ва тушунарли қилиб ўзбек тилида ёзиб бер."""
                 
                 response_text = get_ai_response(prompt)
                 st.success("✨ Янги таҳлил натижаси:")
@@ -98,10 +103,14 @@ if orgs:
             st.info("📜 Базадаги асосий қонунлар:")
             if laws:
                 for l in laws: st.write(f"• {l[0]}")
-            else: st.write("Маълумот йўқ.")
+            else:
+                st.write("Маълумот мавжуд эмас.")
             
         with col_right:
             st.success("✅ Сизнинг асосий вазифаларингиз:")
             if tasks:
                 for t in tasks: st.write(f"• {t[0]}")
-            else: st.write("Маълумот йўқ.")
+            else:
+                st.write("Вазифалар киритилмаган.")
+else:
+    st.warning("Маълумотлар базаси бўш ёки уланишда хатолик.")
