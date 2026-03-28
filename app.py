@@ -2,35 +2,24 @@ import streamlit as st
 import psycopg2
 import google.generativeai as genai
 
-# ======================
-# CONFIG & SECRETS
-# ======================
+# Саҳифа созламалари
 st.set_page_config(page_title="Gov Genie AI", layout="wide")
 
-# Secrets-дан маълумотларни олиш
-try:
-    GENAI_API_KEY = st.secrets["GENAI_API_KEY"]
-    DB_URL = st.secrets["DB_URL"]
-except Exception as e:
-    st.error("Secrets созланмаган. Streamlit Settings > Secrets бўлимини текширинг.")
+# Secrets текшируви
+if "GENAI_API_KEY" not in st.secrets or "DB_URL" not in st.secrets:
+    st.error("Secrets топилмади! Streamlit Settings > Secrets бўлимига калитларни киритинг.")
     st.stop()
 
-# ======================
-# AI CONFIG (МАҲ ИЖРО ТАЛҚИНИ)
-# ======================
-genai.configure(api_key=GENAI_API_KEY)
-# Модель номини энг барқарор версияга ўзгартирдик
-model = genai.GenerativeModel("gemini-1.5-flash")
+# AI-ни созлаш (Энг барқарор модел: gemini-pro)
+genai.configure(api_key=st.secrets["GENAI_API_KEY"])
+model = genai.GenerativeModel("gemini-pro")
 
-# ======================
-# DB FUNCTIONS
-# ======================
+# Базага уланиш
 def run_query(query, params=None):
     try:
-        conn = psycopg2.connect(DB_URL)
+        conn = psycopg2.connect(st.secrets["DB_URL"])
         with conn.cursor() as cur:
             cur.execute(query, params)
-            # SELECT бўлса маълумотни қайтаради, бўлмаса None
             if cur.description:
                 res = cur.fetchall()
             else:
@@ -42,13 +31,9 @@ def run_query(query, params=None):
         st.error(f"База хатолиги: {e}")
         return None
 
-# ======================
-# UI - ИНТЕРФЕЙС
-# ======================
+# ИНТЕРФЕЙС
 st.title("🧞 Gov Genie AI")
-st.subheader("Давлат хизматчиси учун интеллектуаль ёрдамчи")
 
-# Маълумотларни базадан юклаш
 orgs = run_query("SELECT id, name FROM organizations")
 
 if orgs:
@@ -62,50 +47,28 @@ if orgs:
         role_name = st.selectbox("👨‍💼 Лавозимни танланг", list(role_dict.keys()))
         role_id = role_dict[role_name]
 
-        # Чат тарихи
         if "messages" not in st.session_state:
             st.session_state.messages = []
 
         for msg in st.session_state.messages:
             st.chat_message(msg["role"]).write(msg["content"])
 
-        # Фойдаланувчи сўрови
-        user_input = st.chat_input("Саволингизни ёзинг (масалан: ПФ-84 бўйича вазифам нима?)...")
+        user_input = st.chat_input("Саволингизни ёзинг...")
 
         if user_input:
             st.chat_message("user").write(user_input)
             st.session_state.messages.append({"role": "user", "content": user_input})
 
-            # Контекстни олиш (Қонунлар ва Вазифалар)
-            laws = run_query("""
-                SELECT l.title, l.simple FROM laws l 
-                JOIN role_laws rl ON l.id = rl.law_id 
-                WHERE rl.role_id=%s""", (role_id,))
-            
+            # Контекст
+            laws = run_query("SELECT title, simple FROM laws JOIN role_laws ON laws.id = role_laws.law_id WHERE role_id=%s", (role_id,))
             tasks = run_query("SELECT task FROM tasks WHERE role_id=%s", (role_id,))
 
-            # AI учун Промпт (Кечаги мантиқ асосида)
-            prompt = f"""
-            Сен давлат хизматчиси учун содиқ ёрдамчисан. 
-            Фойдаланувчи лавозими: {role_name}
-            Ушбу лавозимга тегишли қонунлар: {laws}
-            Асосий вазифалар: {tasks}
-            
-            Савол: {user_input}
-            
-            Жавобни жуда содда, аниқ ва фақат ўзбек тилида бер. 
-            Агар савол қонунчиликка боғлиқ бўлмаса, хушмуомалалик билан фақат соҳавий ёрдам беришингни айт.
-            """
+            prompt = f"Сен давлат хизматчиси ёрдамчисисан. Лавозим: {role_name}. Қонунлар: {laws}. Вазифалар: {tasks}. Савол: {user_input}"
 
             try:
+                # Бу ерда эски кутубхоналарда ҳам ишлайдиган усул ишлатилди
                 response = model.generate_content(prompt)
-                answer = response.text
-                
-                st.chat_message("assistant").write(answer)
-                st.session_state.messages.append({"role": "assistant", "content": answer})
+                st.chat_message("assistant").write(response.text)
+                st.session_state.messages.append({"role": "assistant", "content": response.text})
             except Exception as ai_err:
                 st.error(f"AI жавоб беришда хатолик: {ai_err}")
-    else:
-        st.warning("Ушбу ташкилот учун лавозимлар киритилмаган.")
-else:
-    st.info("Маълумотлар базаси бўш ёки уланишда муаммо бор. SQL Editor'да маълумот киритганингизни текширинг.")
