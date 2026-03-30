@@ -5,7 +5,7 @@ import pandas as pd
 # Саҳифа созламалари
 st.set_page_config(page_title="МФЙ Инвентаризация", layout="wide", page_icon="🏢")
 
-# 1. МФЙлар рўйхати (60 та маҳалла тўлиқ ва алфавит бўйича)
+# 1. МФЙлар рўйхати
 mfy_list = sorted([
     "Абдужалилбоб", "Алимбува", "Амир Темур", "Асил", "Ахилобод", "Ахмад Яссавий", 
     "Балиқчи", "Боғишамол", "Бодомзор", "Боғзор", "Бўстон", "Гулбоғ", "Далигазар", 
@@ -16,10 +16,10 @@ mfy_list = sorted([
     "Саховат", "Сортепа", "Тариқ-тешар", "Тарнов", "Токзор", "Туропобод", 
     "Туркистон", "Тўқимачи", "Файз", "Фаробий", "Ҳаракат", "Хўжамозор", "Чинор", 
     "Шодлик", "Эркин", "Эски қалъа", "Эшонгузар", "Янги бўзсув", "Ўратепа", 
-    "Ўрикзор", "Ўрта", "Ўртаовул", "Эркин", "Хақиқат", "Зангиота"
+    "Ўрикзор", "Ўрта", "Ўртаовул", "Зангиота", "Хақиқат"
 ])
 
-# --- КЕНГАЙТИРИЛГАН ЛУҒАТ БИЛАН ТЎЛИҚ ҚИСМ ---
+# 2. Кенгайтирилган Жиҳозлар луғати
 inventory_dict = {
     "Техника": [
         "Компьютер жамланмаси", "Ноутбук", "Принтер (МФУ)", "Сканер", "Проектор", 
@@ -43,7 +43,6 @@ inventory_dict = {
     ]
 }
 
-# 3. 7 лик вакиллари
 staff_7 = ["Раис", "Ҳоким ёрдамчиси", "Ёшлар етакчиси", "Аёллар фаоли", "Инспектор", "Солиқчи", "Ижтимоий ходим"]
 
 def run_query(query, params=None, is_select=True):
@@ -77,78 +76,72 @@ if menu == "📥 Киритиш":
     cat_choice = c1.selectbox("Тоифа", list(inventory_dict.keys()))
     final_cat = cat_choice
     if cat_choice == "Бошқа":
-        final_cat = c1.text_input("Тоифа номи")
+        final_cat = c1.text_input("Тоифа номи (қўлда)")
 
     item_choice = c2.selectbox("Жиҳоз", inventory_dict.get(cat_choice, ["Бошқа..."]))
     final_item = item_choice
     if item_choice == "Бошқа...":
-        final_item = c2.text_input("Жиҳоз номи")
+        final_item = c2.text_input("Жиҳоз номи (қўлда)")
 
     with st.form("add_form", clear_on_submit=True):
-        f1, f2 = st.columns(2)
+        f1, f2, f3 = st.columns(3)
         inv_num = f1.text_input("Инвентар №", value="0")
-        cond = f2.selectbox("Ҳолати", ["Яхши", "Таъмирталаб", "Яроқсиз"])
-        resp = f1.selectbox("Масъул (7 лик)", staff_7)
-        price = f2.number_input("Нархи", min_value=0)
+        qty = f2.number_input("Миқдори (сони)", min_value=1, value=1)
+        price = f3.number_input("Бирлик нархи", min_value=0)
+        
+        cond = f1.selectbox("Ҳолати", ["Яхши", "Таъмирталаб", "Яроқсиз"])
+        resp = f2.selectbox("Масъул (7 лик)", staff_7)
         
         if st.form_submit_button("✅ Сақлаш"):
-            run_query("INSERT INTO office_inventory (mfy_name, item_name, inventory_number, category, condition, responsible_person, price) VALUES (%s, %s, %s, %s, %s, %s, %s)", 
-                      (selected_mfy, final_item, inv_num, final_cat, cond, resp, price), is_select=False)
-            st.success("Сақланди!")
+            run_query("""INSERT INTO office_inventory (mfy_name, item_name, inventory_number, category, condition, responsible_person, price, quantity) 
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""", 
+                      (selected_mfy, final_item, inv_num, final_cat, cond, resp, price, qty), is_select=False)
+            st.success("Муваффақиятли сақланди!")
 
 # 2. ҲИСОБОТ
 elif menu == "📋 Ҳисобот":
     st.subheader(f"📋 {selected_mfy}: Умумий ҳисобот")
-    data = run_query("SELECT item_name, inventory_number, category, condition, responsible_person, price FROM office_inventory WHERE mfy_name = %s", (selected_mfy,))
+    data = run_query("SELECT item_name, inventory_number, category, condition, responsible_person, price, quantity FROM office_inventory WHERE mfy_name = %s", (selected_mfy,))
     
     if data:
-        df = pd.DataFrame(data, columns=["Номи", "Инв №", "Тоифа", "Ҳолати", "Масъул", "Нархи"])
+        df = pd.DataFrame(data, columns=["Номи", "Инв №", "Тоифа", "Ҳолати", "Масъул", "Нархи", "Сони"])
+        df["Жами сумма"] = df["Нархи"] * df["Сони"]
         st.dataframe(df, use_container_width=True)
         
         st.divider()
-        st.subheader("👥 7 лик кесимида тақсимот")
-        for member in staff_7:
-            member_data = df[df["Масъул"] == member]
-            if not member_data.empty:
-                with st.expander(f"🔹 {member} (Жами: {len(member_data)} та жиҳоз)"):
-                    st.table(member_data[["Номи", "Инв №", "Ҳолати", "Нархи"]])
-                    st.write(f"**Кичик жами:** {member_data['Нархи'].sum():,.0f} сўм")
-        
-        st.metric("МАҲАЛЛА БЎЙИЧА ЖАМИ", f"{df['Нархи'].sum():,.0f} сўм")
+        st.metric("МАҲАЛЛА БЎЙИЧА ЖАМИ ҚИЙМАТ", f"{df['Жами сумма'].sum():,.0f} сўм")
+        st.metric("ЖАМИ ЖИҲОЗЛАР СОНИ", f"{df['Сони'].sum()} та")
     else:
         st.info("Маълумот йўқ.")
 
 # 3. ТАҲРИРЛАШ
 elif menu == "✏️ Таҳрирлаш":
     st.subheader(f"✏️ {selected_mfy}: Маълумотларни ўзгартириш")
-    data = run_query("SELECT id, item_name, inventory_number, category, condition, responsible_person, price FROM office_inventory WHERE mfy_name = %s", (selected_mfy,))
+    data = run_query("SELECT id, item_name, inventory_number, category, condition, responsible_person, price, quantity FROM office_inventory WHERE mfy_name = %s", (selected_mfy,))
     
     if data:
-        df_edit = pd.DataFrame(data, columns=["ID", "Номи", "Инв №", "Тоифа", "Ҳолати", "Масъул", "Нархи"])
+        df_edit = pd.DataFrame(data, columns=["ID", "Номи", "Инв №", "Тоифа", "Ҳолати", "Масъул", "Нархи", "Сони"])
         st.dataframe(df_edit, use_container_width=True)
         
-        selected_id = st.selectbox("Ўзгартириш учун ID танланг", df_edit["ID"].tolist())
+        selected_id = st.selectbox("ID ни танланг", df_edit["ID"].tolist())
         row = df_edit[df_edit["ID"] == selected_id].iloc[0]
         
         with st.form("edit_form"):
-            st.write(f"**ID: {selected_id}** таҳрирланмоқда")
-            e1, e2 = st.columns(2)
+            e1, e2, e3 = st.columns(3)
             new_item = e1.text_input("Номи", value=row["Номи"])
             new_inv = e2.text_input("Инв №", value=row["Инв №"])
+            new_qty = e3.number_input("Сони", value=int(row["Сони"]))
+            
             new_cond = e1.selectbox("Ҳолати", ["Яхши", "Таъмирталаб", "Яроқсиз"], index=["Яхши", "Таъмирталаб", "Яроқсиз"].index(row["Ҳолати"]))
             new_resp = e2.selectbox("Масъул", staff_7, index=staff_7.index(row["Масъул"]))
-            new_price = e1.number_input("Нархи", value=float(row["Нархи"]))
+            new_price = e3.number_input("Нархи", value=float(row["Нархи"]))
             
-            col_b1, col_b2 = st.columns(2)
-            if col_b1.form_submit_button("💾 Янгилаш"):
-                run_query("UPDATE office_inventory SET item_name=%s, inventory_number=%s, condition=%s, responsible_person=%s, price=%s WHERE id=%s",
-                          (new_item, new_inv, new_cond, new_resp, new_price, selected_id), is_select=False)
-                st.success("Маълумот янгиланди!")
+            b1, b2 = st.columns(2)
+            if b1.form_submit_button("💾 Янгилаш"):
+                run_query("UPDATE office_inventory SET item_name=%s, inventory_number=%s, condition=%s, responsible_person=%s, price=%s, quantity=%s WHERE id=%s",
+                          (new_item, new_inv, new_cond, new_resp, new_price, new_qty, selected_id), is_select=False)
+                st.success("Янгиланди!")
                 st.rerun()
-            
-            if col_b2.form_submit_button("🗑 Ўчириш"):
+            if b2.form_submit_button("🗑 Ўчириш"):
                 run_query("DELETE FROM office_inventory WHERE id=%s", (selected_id,), is_select=False)
-                st.warning("Ўчирилди!")
                 st.rerun()
-    else:
-        st.info("Таҳрирлаш учун маълумот йўқ.")
